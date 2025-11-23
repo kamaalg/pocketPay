@@ -1,0 +1,58 @@
+services:
+  user_service:
+    build:
+      context: ./user_service
+      dockerfile: Dockerfile
+    ports:
+      - "8011:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB_URL=postgres://app:app@postgres:5432/user_service_db
+    restart: unless-stopped
+  payment_service:
+    build: 
+      context: ./payment_service
+      dockerfile: Dockerfile
+    ports:
+      - "8012:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    restart: unless-stopped
+  auth_service:
+    build:
+      context: ./auth_service
+      dockerfile: Dockerfile
+    ports:
+      - "8013:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB_URL=postgres://app:app@postgres:5432/auth_service_db
+      - Secret_Token=hfbndijskm
+    
+    restart: unless-stopped
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgresDB
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=pocketpay
+      - POSTGRES_USER=app
+      - POSTGRES_PASSWORD=app
+    ports:
+      - "5442:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data 
+      - ./db/init:/docker-entrypoint-initdb.d 
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-pocketpay} -h localhost"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+volumes:
+  pgdata:
