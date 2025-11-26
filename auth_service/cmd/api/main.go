@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -31,6 +32,70 @@ type SignUpRequest struct {
 type accessTokenClaims struct {
 	Email string `json:"email"`
 	jwt.RegisteredClaims
+}
+type refreshTokenRequest struct {
+	Email string `json:"email" binding:"required,email"`
+
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+
+func validateAccessToken(tokenStr string) (*accessTokenClaims, error) {
+	secretToken := os.Getenv("Secret_Token")
+	if secretToken == "" {
+		return nil, fmt.Errorf("secret token not set")
+	}
+
+	jwtSecret := []byte(secretToken)
+
+	token, err := jwt.ParseWithClaims(
+		tokenStr,
+		&accessTokenClaims{},
+		func(t *jwt.Token) (interface{}, error) {
+			// ensure we're using the expected signing method
+			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+			}
+			return jwtSecret, nil
+		},
+	)
+	if err != nil {
+		return nil, err // could be malformed, bad signature, expired, etc.
+	}
+
+	claims, ok := token.Claims.(*accessTokenClaims)
+	if !ok || !token.Valid {
+		return nil, fmt.Errorf("invalid token")
+	}
+
+	// Extra safety: check expiration manually
+	if claims.ExpiresAt != nil && claims.ExpiresAt.Time.Before(time.Now()) {
+		return nil, fmt.Errorf("token expired")
+	}
+
+	return claims, nil
+}
+
+func AuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing or invalid Authorization header"})
+			return
+		}
+
+		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+
+		claims, err := validateAccessToken(tokenStr)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			return
+		}
+
+		// put email (or user id) into context
+		c.Set("email", claims.Email)
+
+		c.Next()
+	}
 }
 
 func openDBpool(ctx context.Context, dburl string) (*pgxpool.Pool, error) {
@@ -146,6 +211,46 @@ func main() {
 			"message":      "Success!!!",
 			"accessToken":  accessToken,
 			"refreshToken": refreshToken,
+		}
+		c.JSON(http.StatusOK, responseData)
+
+	})
+	api.POST("/refresh_token", func(c *gin.Context) {
+		var in refreshTokenRequest
+		var exists bool
+		bind_err := c.ShouldBindBodyWithJSON(&in)
+
+		if bind_err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"detail": "Bad request format"})
+		}
+		ctx = c.Request.Context()
+
+		db_err_exists := pool.QueryRow(ctx, "SELECT EXISTS  (SELECT 1 FROM auth_details WHERE email = $1 AND refresh_token=$2)", in.Email, in.RefreshToken).Scan(&exists)
+		if db_err_exists != nil {
+			fmt.Println(db_err_exists)
+			c.JSON(http.StatusInternalServerError, gin.H{"details": "DB ERROR1"})
+			return
+		}
+		if exists == false {
+			c.JSON(http.StatusForbidden, gin.H{"details": "Something in your request data does not correspond with our records."})
+			return
+		}
+		accessToken, RefreshToken, error_token := generatetoken(in.Email)
+
+		if error_token != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"details": "Internal error while refreshing your new token."})
+			return
+		}
+
+		_, db_err := pool.Exec(ctx, "UPDATE auth_details SET refresh_token=$1, access_token=$2 WHERE email=$3", RefreshToken, accessToken, in.Email)
+		if db_err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"details": "DB ERROR2"})
+			return
+		}
+		responseData := gin.H{
+			"message":      "Success!!!",
+			"accessToken":  accessToken,
+			"refreshToken": RefreshToken,
 		}
 		c.JSON(http.StatusOK, responseData)
 

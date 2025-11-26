@@ -20,6 +20,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    environment:
+      - DB_URL=postgres://app:app@postgres:5432/payment_service_db
 
     restart: unless-stopped
   auth_service:
