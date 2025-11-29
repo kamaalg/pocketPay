@@ -7,14 +7,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	// import generated swagger docs (created by `swag init`)
 )
@@ -26,6 +26,11 @@ type createAccount struct {
 type updateUser struct {
 	Email    string `json:"email" binding:"required"`
 	Password string `json:"password" binding:"required,min=0"`
+}
+
+type ChangeBalanceRequest struct {
+	Amount int    `json:"amount" binding:"required,min=0.1"`
+	Email  string `json:"email" binding:"required,email"`
 }
 
 func openDBPool(ctx context.Context, dbURL string) (*pgxpool.Pool, error) {
@@ -45,6 +50,7 @@ func openDBPool(ctx context.Context, dbURL string) (*pgxpool.Pool, error) {
 
 func main() {
 	db_url := os.Getenv("DB_URL")
+	card_db_url := os.Getenv("Card_DB_URL")
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -53,6 +59,7 @@ func main() {
 	fmt.Println("PORT:", port)
 	ctx := context.Background()
 	pool, err := openDBPool(ctx, db_url)
+	card_pool, err := openDBPool(ctx, card_db_url)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to connect to db: %v\n", err)
 		os.Exit(1)
@@ -69,75 +76,132 @@ func main() {
 	})
 	api := r.Group("/api/v1")
 
-	api.POST("/createUser", func(c *gin.Context) {
-		var in createAccount
+	api.GET("/get_balance", func(c *gin.Context) {
+		var balance int
+		email := c.Query("email") // returns "" if not present
 
-		err := c.ShouldBindJSON(&in)
-		var id int
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+		if email == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"details": "email query param is required"})
 			return
 		}
 		ctx := c.Request.Context()
+
+		db_err := pool.QueryRow(ctx, "SELECT balance FROM account_balance WHERE email=$1", email).Scan(&balance)
+
+		if db_err != nil {
+			fmt.Println(db_err)
+			c.JSON(http.StatusInternalServerError, gin.H{"details": "DB error."})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"balance": balance})
+
+	})
+
+	api.GET("/get_user_info", func(c *gin.Context) {
+		var name string
+		var age int
+		var password string
+		email := c.Query("email") // returns "" if not present
+
+		if email == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"details": "email query param is required"})
+			return
+		}
+		ctx := c.Request.Context()
+
+		db_err := pool.QueryRow(ctx, "SELECT name,age,password FROM user_info WHERE email=$1", email).Scan(&name, &age, &password)
+
+		if db_err != nil {
+			fmt.Println(db_err)
+			c.JSON(http.StatusInternalServerError, gin.H{"details": "DB error."})
+			return
+		}
+		response_data := gin.H{
+			"Age":      age,
+			"Email":    email,
+			"Name":     name,
+			"Password": password,
+		}
+		c.JSON(http.StatusOK, response_data)
+
+	})
+
+	api.POST("/add_balance", func(c *gin.Context) {
+		//EMULATE STRIPE API CALL
+		var in ChangeBalanceRequest
 		var exists bool
 
-		temp_err := pool.QueryRow(
-			ctx,
-			"SELECT EXISTS (SELECT 1 FROM users WHERE email = $1)",
-			in.Email,
-		).Scan(&exists)
-		if temp_err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": temp_err.Error()})
-		}
-		if exists {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "The user already exists"})
-		}
-		error := pool.QueryRow(ctx, "INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id", in.Email, in.Password).Scan(&id)
-		if error != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": error.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"id": id})
-
-	})
-
-	api.POST("/updateUser", func(c *gin.Context) {
-		var in updateUser
-
-		err := c.ShouldBindJSON(&in)
-
-		var id int
-
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
-			return
-		}
-
 		ctx := c.Request.Context()
-		error := pool.QueryRow(ctx, "UPDATE  users set password = $2 where email = $1 RETURNING id", in.Email, in.Password).Scan(&id)
-		if error != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": error.Error()})
+
+		bind_err := c.ShouldBindBodyWithJSON(&in)
+		if bind_err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"details": "Wrong request format"})
+			return
 		}
-		c.JSON(http.StatusOK, gin.H{"id": id})
+		db_err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM user_info WHERE email=$1)", in.Email).Scan(&exists)
+		if db_err != nil {
+			fmt.Println(db_err)
+			c.JSON(http.StatusInternalServerError, gin.H{"details": "DB error."})
+			return
+		}
+		if !exists {
+			c.JSON(http.StatusBadRequest, gin.H{"details": "No email matched with the provided one"})
+			return
+		}
+		var newAmount int
+		err_insert := card_pool.QueryRow(ctx,
+			"UPDATE account_balance SET balance = balance + $1 WHERE email = $2 RETURNING balance",
+			in.Amount,
+			in.Email,
+		).Scan(&newAmount)
+
+		if err_insert != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"details": "DB error"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"details": "Success,amount added", "New Amount": newAmount})
+
+	})
+	api.POST("/remove_balance", func(c *gin.Context) {
+		var in ChangeBalanceRequest
+		var exists bool
+		ctx := c.Request.Context()
+
+		bind_err := c.ShouldBindBodyWithJSON(&in)
+		if bind_err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"details": "Wrong request format"})
+			return
+		}
+		db_err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM user_info WHERE email=$1)", in.Email).Scan(&exists)
+		if db_err != nil {
+			fmt.Println(db_err)
+			c.JSON(http.StatusInternalServerError, gin.H{"details": "DB error."})
+			return
+		}
+		if !exists {
+			c.JSON(http.StatusBadRequest, gin.H{"details": "No email matched with the provided one"})
+			return
+		}
+		var newAmount int
+		err_insert := card_pool.QueryRow(ctx,
+			"UPDATE account_balance SET balance = balance - $1 WHERE email = $2 AND balance >= $1 RETURNING balance",
+			in.Amount,
+			in.Email,
+		).Scan(&newAmount)
+
+		if err_insert != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+
+				c.JSON(http.StatusBadRequest, gin.H{"details": "Insufficient balance"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"details": "DB error"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"details": "Success,amount added", "New Amount": newAmount})
 	})
 
-	srv := &http.Server{
-		Addr:    ":" + port,
-		Handler: r,
-	}
-
-	go func() {
-		_ = srv.ListenAndServe()
-	}()
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
-	<-quit
-	fmt.Println("shutting down server...")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		fmt.Printf("server forced to shutdown: %v\n", err)
-	}
-	fmt.Println("server exited")
+	_ = r.Run(":" + port)
 }

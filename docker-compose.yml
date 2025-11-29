@@ -9,7 +9,8 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      - DB_URL=postgres://app:app@postgres:5432/user_service_db
+      - DB_URL=postgres://app:app@postgres:5432/auth_service_db
+      - Card_DB_URL=postgres://app:app@postgres:5432/payment_service_db
     restart: unless-stopped
   payment_service:
     build: 
