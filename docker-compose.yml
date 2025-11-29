@@ -39,6 +39,18 @@ services:
       - Secret_Token=hfbndijskm
     
     restart: unless-stopped
+  transaction_service:
+    build: 
+      context: ./transaction_service
+      dockerfile: Dockerfile
+    ports:
+      - "8014:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB_URL=postgres://app:app@postgres:5432/auth_service_db
+    restart: unless-stopped
   postgres:
     image: postgres:16-alpine
     container_name: postgresDB
