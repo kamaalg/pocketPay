@@ -13,14 +13,15 @@ import (
 type PayAnotherAccountRequest struct {
 	FromAccountEmail string `json:"from_account" binding:"required,email"`
 	ToAccountEmail   string `json:"to_account" binding:"required,email"`
-	Amount           int    `json:"amount" binding:"required,min=0.1"`
+	Amount           int64  `json:"amount" binding:"required,min=0.1"`
+	Idempotency_key  string `json:"idempotency_key" binding:"required"`
 }
 
 func main() {
 	db_url := os.Getenv("DB_url")
 	r := gin.New()
 	ctx := context.Background()
-	pool, err := dbpackage.OpenDBPool()(ctx, db_url)
+	pool, err := dbpackage.OpenDBPool(ctx, db_url)
 
 	if err != nil {
 		fmt.Println(err)

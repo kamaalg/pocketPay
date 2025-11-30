@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package ledgerpb;
+
+option go_package = "github.com/kamaalg/pocketPay/ledger_service/ledgerpb;ledgerpb";
+
+service Ledger {
+  rpc PostTransaction(Transaction) returns (Ack);
+}
+
+message Transaction {
+  string id = 1;
+  string account_email = 2;
+  int64 amount = 3;
+  string description = 4;
+  int64 timestamp = 5;
+}
+
+message Ack {
+  bool ok = 1;
+  string id = 2;
+  string message = 3;
+}
