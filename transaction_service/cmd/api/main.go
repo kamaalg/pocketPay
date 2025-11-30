@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
+	dbpackage "github.com/kamaalg/pocketPay/db"
 )
 
 type PayAnotherAccountRequest struct {
@@ -17,27 +16,16 @@ type PayAnotherAccountRequest struct {
 	Amount           int    `json:"amount" binding:"required,min=0.1"`
 }
 
-func openDBPool(ctx context.Context, db_url string) (*pgxpool.Pool, error) {
-	config, err := pgxpool.ParseConfig(db_url)
-	if err != nil {
-		return nil, fmt.Errorf("parse db url: %w", err)
-
-	}
-	config.MaxConns = 5
-	config.MinConns = 1
-	config.MaxConnLifetime = time.Minute * 30
-	pool, error := pgxpool.NewWithConfig(ctx, config)
-	if error != nil {
-		return nil, fmt.Errorf("create db pool error: %w", err)
-	}
-	return pool, nil
-
-}
 func main() {
 	db_url := os.Getenv("DB_url")
 	r := gin.New()
 	ctx := context.Background()
-	pool, err := openDBPool(ctx, db_url)
+	pool, err := dbpackage.OpenDBPool()(ctx, db_url)
+
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 
 	api := r.Group("/api/v1")
 	r.Use(gin.Logger())

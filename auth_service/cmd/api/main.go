@@ -15,7 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	dbpackage "github.com/kamaalg/pocketPay/db"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -98,18 +98,6 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-func openDBpool(ctx context.Context, dburl string) (*pgxpool.Pool, error) {
-	config, err := pgxpool.ParseConfig(dburl)
-	if err != nil {
-		return nil, fmt.Errorf("parse db url: %w", err)
-
-	}
-	config.MaxConns = 5
-	config.MinConns = 1
-	config.MaxConnLifetime = time.Minute * 30
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	return pool, nil
-}
 func generatetoken(email string) (accessTokenString string, refreshTokenString string, error error) {
 	secret_token := os.Getenv("Secret_Token")
 	jwtSecret := []byte(secret_token)
@@ -143,7 +131,7 @@ func main() {
 	}
 	db_url := os.Getenv("DB_URL")
 	ctx := context.Background()
-	pool, err := openDBpool(ctx, db_url)
+	pool, err := dbpackage.OpenDBPool(ctx, db_url)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to connect to db: %v\n", err)
 		os.Exit(1)

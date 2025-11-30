@@ -11,11 +11,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	dbpackage "github.com/kamaalg/pocketPay/db"
 	// import generated swagger docs (created by `swag init`)
 )
 
@@ -33,21 +32,6 @@ type ChangeBalanceRequest struct {
 	Email  string `json:"email" binding:"required,email"`
 }
 
-func openDBPool(ctx context.Context, dbURL string) (*pgxpool.Pool, error) {
-	config, err := pgxpool.ParseConfig(dbURL)
-
-	if err != nil {
-		return nil, fmt.Errorf("parse db url: %w", err)
-
-	}
-	config.MaxConns = 10
-	config.MinConns = 1
-	config.MaxConnLifetime = time.Minute * 30
-
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	return pool, nil
-}
-
 func main() {
 	db_url := os.Getenv("DB_URL")
 	card_db_url := os.Getenv("Card_DB_URL")
@@ -58,8 +42,8 @@ func main() {
 	}
 	fmt.Println("PORT:", port)
 	ctx := context.Background()
-	pool, err := openDBPool(ctx, db_url)
-	card_pool, err := openDBPool(ctx, card_db_url)
+	pool, err := dbpackage.OpenDBPool(ctx, db_url)
+	card_pool, err := dbpackage.OpenDBPool(ctx, card_db_url)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to connect to db: %v\n", err)
 		os.Exit(1)

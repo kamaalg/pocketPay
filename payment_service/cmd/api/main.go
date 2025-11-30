@@ -10,10 +10,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	dbpackage "github.com/kamaalg/pocketPay/db"
 )
 
 type AddCardRequest struct {
@@ -27,19 +27,6 @@ type DeleteCardRequest struct {
 }
 
 var pool *pgxpool.Pool
-
-func openDBpool(ctx context.Context, dburl string) (*pgxpool.Pool, error) {
-	config, err := pgxpool.ParseConfig(dburl)
-	if err != nil {
-		return nil, fmt.Errorf("parse db url: %w", err)
-
-	}
-	config.MaxConns = 5
-	config.MinConns = 1
-	config.MaxConnLifetime = time.Minute * 30
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	return pool, nil
-}
 
 // // authMiddleware requires an Authorization header. If AUTH_TOKEN env var is set,
 // // the header must be "Bearer <AUTH_TOKEN>". If AUTH_TOKEN is empty, the header
@@ -73,7 +60,7 @@ func main() {
 	port := os.Getenv("PORT")
 	db_url := os.Getenv("DB_URL")
 	ctx := context.Background()
-	pool, _ = openDBpool(ctx, db_url)
+	pool, _ = dbpackage.OpenDBPool(ctx, db_url)
 	if port == "" {
 		port = "8001" // match Dockerfile EXPOSE
 	}
