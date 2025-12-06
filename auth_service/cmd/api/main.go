@@ -175,8 +175,6 @@ func main() {
 			return
 		}
 
-		fmt.Println(storedHash)
-
 		if storedHash == "" {
 			c.JSON(http.StatusOK, "Email not found")
 			return
@@ -279,6 +277,14 @@ func main() {
 
 		if err_db_2 != nil {
 			fmt.Println(err_db_2.Error())
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "DB is not working"})
+			return
+		}
+
+		_, err_db_3 := pool.Exec(ctx, "INSERT INTO account_balance (balance,email) VALUES ($1,$2)", 0.00, in.Email)
+
+		if err_db_3 != nil {
+			fmt.Println(err_db_3)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "DB is not working"})
 			return
 		}

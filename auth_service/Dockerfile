@@ -1,9 +1,8 @@
-FROM golang:1.23-alpine
-
-
+FROM golang:1.25.4-alpine
 WORKDIR /app
-
-COPY go.mod go.sum ./
+COPY . .
+WORKDIR /app/auth_service
+COPY ./auth_service/go.mod ./auth_service/go.sum ./
 
 RUN go mod download
 
@@ -11,7 +10,6 @@ COPY . .
 
 RUN go build -o server ./cmd/api
 
-EXPOSE 8002
 
 
 CMD ["./server"]

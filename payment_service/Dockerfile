@@ -1,9 +1,8 @@
-FROM golang:1.23-alpine
-
-
+FROM golang:1.25.4-alpine
 WORKDIR /app
-
-COPY go.mod go.sum ./
+COPY . .
+WORKDIR /app/payment_service
+COPY ./payment_service/go.mod ./payment_service/go.sum ./
 
 RUN go mod download
 

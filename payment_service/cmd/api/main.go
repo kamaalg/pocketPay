@@ -20,6 +20,7 @@ type AddCardRequest struct {
 	CardNo  string `json:"cardNo"   binding:"required,numeric,len=16"`
 	ExpDate string `json:"exp_date" binding:"required"`
 	Cvc     string `json:"cvc"      binding:"required,numeric,len=3"`
+	Email   string `json:"email" binding:"required,email"`
 }
 
 type DeleteCardRequest struct {
@@ -94,10 +95,10 @@ func main() {
 			c.JSON(http.StatusOK, gin.H{"details": "The card already exists in our records."})
 		}
 
-		_, insert_err := pool.Exec(ctx, "INSERT INTO card_details (cardNO, exp_date, cvv) VALUES ($1,$2,$3)", in.CardNo, in.ExpDate, in.Cvc)
+		_, insert_err := pool.Exec(ctx, "INSERT INTO card_details (cardNO, exp_date, cvv,email) VALUES ($1,$2,$3,$4)", in.CardNo, in.ExpDate, in.Cvc, in.Email)
 
 		if insert_err != nil {
-			fmt.Println(query_err)
+			fmt.Println(insert_err)
 			c.JSON(http.StatusInternalServerError, gin.H{"details": "DB error."})
 			return
 		}
@@ -120,7 +121,7 @@ func main() {
 			return
 		}
 
-		if exists == false {
+		if !exists {
 			c.JSON(http.StatusOK, gin.H{"details": "The card does not exists in our records."})
 		}
 

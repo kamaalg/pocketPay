@@ -11,25 +11,31 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	dbpackage "github.com/kamaalg/pocketPay/db"
+	ledgerpb "github.com/kamaalg/pocketPay/ledger_service/ledgerpb"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	// import generated swagger docs (created by `swag init`)
 )
 
-type createAccount struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=0"`
-}
-type updateUser struct {
-	Email    string `json:"email" binding:"required"`
-	Password string `json:"password" binding:"required,min=0"`
-}
+type TopUpSource string
+
+const (
+	TopUpSourceCard   TopUpSource = "card"
+	TopUpSourceBank   TopUpSource = "bank"
+	TopUpSourcePromo  TopUpSource = "promo"
+	TopUpSourceManual TopUpSource = "manual" // for admin/internal
+)
 
 type ChangeBalanceRequest struct {
-	Amount int    `json:"amount" binding:"required,min=0.1"`
-	Email  string `json:"email" binding:"required,email"`
+	Amount         int         `json:"amount" binding:"required,min=1"`
+	Email          string      `json:"email" binding:"required,email"`
+	Source         TopUpSource `json:"source" binding:"required,oneof=card bank promo manual"`
+	IdempotencyKey string      `json:"idempotency_key" binding:"required"`
 }
 
 func main() {
@@ -38,16 +44,21 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8000" // match Dockerfile EXPOSE
+		port = "8000"
 	}
 	fmt.Println("PORT:", port)
 	ctx := context.Background()
-	pool, err := dbpackage.OpenDBPool(ctx, db_url)
-	card_pool, err := dbpackage.OpenDBPool(ctx, card_db_url)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to connect to db: %v\n", err)
+	pool, error := dbpackage.OpenDBPool(ctx, db_url)
+	card_pool, card_err := dbpackage.OpenDBPool(ctx, card_db_url)
+	if error != nil {
+		fmt.Fprintf(os.Stderr, "failed to connect to db: %v\n", error)
 		os.Exit(1)
 	}
+	if card_err != nil {
+		fmt.Fprintf(os.Stderr, "failed to connect to db: %v\n", card_err)
+		os.Exit(1)
+	}
+
 	defer pool.Close()
 
 	r := gin.New()
@@ -59,6 +70,18 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "service healthy"})
 	})
 	api := r.Group("/api/v1")
+	ledgerAddr := os.Getenv("LEDGER_ADDR")
+	fmt.Println(ledgerAddr) // e.g. "ledger:50051" or "localhost:50051"
+	var ledgerClient ledgerpb.LedgerClient
+	if ledgerAddr != "" {
+		conn, err := grpc.Dial(ledgerAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			fmt.Printf("failed to dial ledger service: %v\n", err)
+		} else {
+			ledgerClient = ledgerpb.NewLedgerClient(conn)
+
+		}
+	}
 
 	api.GET("/get_balance", func(c *gin.Context) {
 		var balance int
@@ -133,15 +156,44 @@ func main() {
 			return
 		}
 		var newAmount int
-		err_insert := card_pool.QueryRow(ctx,
+		err_insert := pool.QueryRow(ctx,
 			"UPDATE account_balance SET balance = balance + $1 WHERE email = $2 RETURNING balance",
 			in.Amount,
 			in.Email,
 		).Scan(&newAmount)
 
 		if err_insert != nil {
+			fmt.Println(err_insert)
 			c.JSON(http.StatusInternalServerError, gin.H{"details": "DB error"})
 			return
+		}
+		if ledgerClient != nil {
+			txID := in.IdempotencyKey
+			if txID == "" {
+				txID = fmt.Sprintf("tx-%d", time.Now().UnixNano())
+			}
+
+			ledgerReq := &ledgerpb.Transaction{
+				Id:           txID,
+				AccountEmail: in.Email,
+				Amount:       int64(in.Amount),
+				Description:  fmt.Sprintf("transfer to %s", in.Email),
+				Timestamp:    time.Now().Unix(),
+			} //change it a bit
+
+			rpcCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			ack, err := ledgerClient.PostTransaction(rpcCtx, ledgerReq)
+			if err != nil {
+				fmt.Printf("ledger post error: %v\n", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"details": "Error during ledger service execution"})
+
+				return
+			} else if ack == nil || !ack.Ok {
+				fmt.Printf("ledger ack negative: %v\n", ack)
+				c.JSON(http.StatusInternalServerError, gin.H{"details": "Error during ledger service execution"})
+				return
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{"details": "Success,amount added", "New Amount": newAmount})
@@ -175,7 +227,7 @@ func main() {
 		).Scan(&newAmount)
 
 		if err_insert != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err_insert, pgx.ErrNoRows) {
 
 				c.JSON(http.StatusBadRequest, gin.H{"details": "Insufficient balance"})
 				return

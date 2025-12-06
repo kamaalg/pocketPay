@@ -1,4 +1,4 @@
-package server
+package main
 
 import (
 	"context"
@@ -19,6 +19,19 @@ type server struct {
 }
 
 func (s *server) PostTransaction(ctx context.Context, req *ledgerpb.Transaction) (*ledgerpb.Ack, error) {
+	var exists bool
+	const checkidSQL = `SELECT EXISTS (SELECT 1 FROM ledger where id=$1)`
+	query_err := s.pool.QueryRow(ctx, checkidSQL, req.Id).Scan(&exists)
+	if query_err != nil {
+		fmt.Printf("db error: %v\n", query_err)
+		return &ledgerpb.Ack{Ok: false, Id: req.Id, Message: "Failed to write ledger"}, nil
+	}
+	if exists {
+		fmt.Printf("same transaction error: %v\n", query_err)
+		return &ledgerpb.Ack{Ok: false, Id: req.Id, Message: "This transaction was already done(same idempotancy key)"}, nil
+
+	}
+
 	const insertSQL = `INSERT INTO ledger(id, account_email, amount, description, created_at) VALUES($1, $2, $3, $4, to_timestamp($5))`
 	_, err := s.pool.Exec(ctx, insertSQL, req.Id, req.AccountEmail, req.Amount, req.Description, req.Timestamp)
 	if err != nil {

@@ -1,21 +1,23 @@
 services:
   user_service:
     build:
-      context: ./user_service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./user_service/Dockerfile
     ports:
       - "8011:8000"
     depends_on:
       postgres:
         condition: service_healthy
+ 
     environment:
       - DB_URL=postgres://app:app@postgres:5432/auth_service_db
       - Card_DB_URL=postgres://app:app@postgres:5432/payment_service_db
+      - LEDGER_ADDR=ledger_service:50051
     restart: unless-stopped
   payment_service:
     build: 
-      context: ./payment_service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./payment_service/Dockerfile
     ports:
       - "8012:8001"
     depends_on:
@@ -27,8 +29,8 @@ services:
     restart: unless-stopped
   auth_service:
     build:
-      context: ./auth_service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./auth_service/Dockerfile
     ports:
       - "8013:8002"
     depends_on:
@@ -39,17 +41,33 @@ services:
       - Secret_Token=hfbndijskm
     
     restart: unless-stopped
+  nginx:
+  
   transaction_service:
     build: 
-      context: ./transaction_service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./transaction_service/Dockerfile
     ports:
       - "8014:8003"
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      - DB_URL=postgres://app:app@postgres:5432/auth_service_db
+      - DB_url=postgres://app:app@postgres:5432/auth_service_db
+      - Port=8003
+      - LEDGER_ADDR=ledger_service:50051
+    restart: unless-stopped
+  ledger_service:
+    build:
+      context: .
+      dockerfile: ./ledger_service/Dockerfile
+    ports:
+      - "50051:50051"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB_url=postgres://app:app@postgres:5432/ledger_service_db
     restart: unless-stopped
   postgres:
     image: postgres:16-alpine

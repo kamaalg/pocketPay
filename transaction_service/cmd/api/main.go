@@ -18,11 +18,12 @@ import (
 type PayAnotherAccountRequest struct {
 	FromAccountEmail string `json:"from_account" binding:"required,email"`
 	ToAccountEmail   string `json:"to_account" binding:"required,email"`
-	Amount           int64  `json:"amount" binding:"required,min=0.1"`
+	Amount           int64  `json:"amount" binding:"required,min=1"`
 	Idempotency_key  string `json:"idempotency_key" binding:"required"`
 }
 
 func main() {
+	port := os.Getenv("Port")
 	db_url := os.Getenv("DB_url")
 	r := gin.New()
 	ctx := context.Background()
@@ -57,6 +58,7 @@ func main() {
 		bind_err := c.ShouldBindJSON(&in)
 
 		if bind_err != nil {
+			fmt.Println(bind_err)
 			c.JSON(http.StatusBadRequest, gin.H{"details": "Incorrect request format"})
 			return
 		}
@@ -94,12 +96,10 @@ func main() {
 				Timestamp:    time.Now().Unix(),
 			}
 
-			// small timeout for the RPC to avoid blocking the request for long
 			rpcCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
 			ack, err := ledgerClient.PostTransaction(rpcCtx, ledgerReq)
 			if err != nil {
-				// Log the error but don't fail the main operation (tolerate ledger being down)
 				fmt.Printf("ledger post error: %v\n", err)
 			} else if ack == nil || !ack.Ok {
 				fmt.Printf("ledger ack negative: %v\n", ack)
@@ -109,5 +109,6 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"details": "Amount was sent"})
 
 	})
+	_ = r.Run(":" + port)
 
 }
