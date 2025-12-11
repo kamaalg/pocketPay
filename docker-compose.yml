@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: ./user_service/Dockerfile
     ports:
-      - "8011:8000"
+      - "8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -19,7 +19,7 @@ services:
       context: .
       dockerfile: ./payment_service/Dockerfile
     ports:
-      - "8012:8001"
+      - "8001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -32,7 +32,7 @@ services:
       context: .
       dockerfile: ./auth_service/Dockerfile
     ports:
-      - "8013:8002"
+      - "8002"
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,7 +60,7 @@ services:
       context: .
       dockerfile: ./transaction_service/Dockerfile
     ports:
-      - "8014:8003"
+      - "8003"
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,7 +74,7 @@ services:
       context: .
       dockerfile: ./ledger_service/Dockerfile
     ports:
-      - "50051:50051"
+      - "50051"
     depends_on:
       postgres:
         condition: service_healthy

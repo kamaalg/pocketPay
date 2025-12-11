@@ -23,6 +23,7 @@ func (s *server) PostTransaction(ctx context.Context, req *ledgerpb.Transaction)
 	const checkidSQL = `SELECT EXISTS (SELECT 1 FROM ledger where id=$1)`
 	query_err := s.pool.QueryRow(ctx, checkidSQL, req.Id).Scan(&exists)
 	if query_err != nil {
+		// per-request logger will be attached by interceptor; fallback to global
 		fmt.Printf("db error: %v\n", query_err)
 		return &ledgerpb.Ack{Ok: false, Id: req.Id, Message: "Failed to write ledger"}, nil
 	}
@@ -68,6 +69,7 @@ func main() {
 	// Enable reflection for easy debugging (grpcurl etc.)
 	reflection.Register(srv)
 
+	// server start
 	fmt.Println("ledger gRPC server listening on :50051")
 	if err := srv.Serve(lis); err != nil {
 		fmt.Printf("server error: %v\n", err)
