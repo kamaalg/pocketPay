@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpackage "github.com/kamaalg/pocketPay/db"
+	"github.com/kamaalg/pocketPay/observability"
 )
 
 type AddCardRequest struct {
@@ -73,6 +74,19 @@ func main() {
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "service healthy"})
 	})
+
+	// init observability
+	logger, tp, shutdown, err := observability.Init("payment_service")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "observability init failed: %v\n", err)
+	}
+	defer func() {
+		_ = shutdown(context.Background())
+		if tp != nil {
+			_ = tp.Shutdown(context.Background())
+		}
+	}()
+	r.Use(observability.GinMiddleware(logger), gin.Recovery())
 
 	api := r.Group("api/v1")
 

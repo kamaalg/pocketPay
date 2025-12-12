@@ -17,6 +17,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	dbpackage "github.com/kamaalg/pocketPay/db"
 	ledgerpb "github.com/kamaalg/pocketPay/ledger_service/ledgerpb"
+	"github.com/kamaalg/pocketPay/observability"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	// import generated swagger docs (created by `swag init`)
@@ -61,8 +63,21 @@ func main() {
 
 	defer pool.Close()
 
+	logger, tp, shutdown, err := observability.Init("user_service")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "observability init failed: %v\n", err)
+	}
+	defer func() {
+		_ = shutdown(context.Background())
+		if tp != nil {
+			_ = tp.Shutdown(context.Background())
+		}
+	}()
+
+	logger.Info("user service starting", zap.String("db_url", db_url))
+
 	r := gin.New()
-	r.Use(gin.Recovery(), gin.Logger())
+	r.Use(observability.GinMiddleware(logger), gin.Recovery())
 	r.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"welcome": "hello"})
 	})

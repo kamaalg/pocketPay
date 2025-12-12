@@ -1,0 +1,24 @@
+receivers:
+  otlp:
+    protocols:
+      grpc: {}
+      http: {}
+
+exporters:
+  logging:
+    loglevel: debug
+  # Use Zipkin HTTP exporter to send traces to Jaeger's Zipkin-compatible endpoint
+  # (Jaeger's all-in-one exposes Zipkin on port 9411). This avoids exporter schema
+  # mismatches and works well for local development.
+  zipkin:
+    endpoint: "http://jaeger:9411/api/v2/spans"
+
+processors:
+  batch: {}
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [logging, zipkin]

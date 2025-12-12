@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	dbpackage "github.com/kamaalg/pocketPay/db"
 	ledgerpb "github.com/kamaalg/pocketPay/ledger_service/ledgerpb"
+	"github.com/kamaalg/pocketPay/observability"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -34,9 +35,22 @@ func main() {
 		return
 	}
 
+	// init observability
+	logger, tp, shutdown, err := observability.Init("transaction_service")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "observability init failed: %v\n", err)
+	}
+	defer func() {
+		_ = shutdown(context.Background())
+		if tp != nil {
+			_ = tp.Shutdown(context.Background())
+		}
+	}()
+
+	logger.Info("transaction service starting")
+
 	api := r.Group("/api/v1")
-	r.Use(gin.Logger())
-	r.Use(gin.Recovery())
+	r.Use(observability.GinMiddleware(logger), gin.Logger(), gin.Recovery())
 
 	// Create a gRPC connection to ledger service once at startup
 	ledgerAddr := os.Getenv("LEDGER_ADDR") // e.g. "ledger:50051" or "localhost:50051"

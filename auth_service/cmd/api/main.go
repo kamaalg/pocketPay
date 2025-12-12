@@ -16,6 +16,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	dbpackage "github.com/kamaalg/pocketPay/db"
+	"github.com/kamaalg/pocketPay/observability"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -137,10 +139,23 @@ func main() {
 		os.Exit(1)
 	}
 	defer pool.Close()
-	fmt.Println("auth service starting on url", db_url)
+	// initialize observability for auth_service
+	logger, tp, shutdown, err := observability.Init("auth_service")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "observability init failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer func() {
+		_ = shutdown(context.Background())
+		if tp != nil {
+			_ = tp.Shutdown(context.Background())
+		}
+	}()
+
+	logger.Info("auth service starting", zap.String("db_url", db_url))
 
 	r := gin.New()
-	r.Use(gin.Recovery(), gin.Logger())
+	r.Use(observability.GinMiddleware(logger), gin.Recovery())
 
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
